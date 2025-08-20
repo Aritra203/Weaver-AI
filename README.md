@@ -71,6 +71,11 @@ cp .env.example .env
 3. **Start Backend**: `uvicorn backend.main:app --reload`
 4. **Launch UI**: `streamlit run ui/app.py`
 
+### Option 3: Streamlit Cloud Deployment
+1. **Test Locally**: `streamlit run streamlit_app.py`
+2. **Deploy**: Follow the guide in `DEPLOYMENT.md`
+3. **Configure Secrets**: Add your API keys in Streamlit Cloud dashboard
+
 ### Knowledge Base Management
 - **Clear All Data**: Use the "Clear Knowledge Base" button in the UI sidebar or call `DELETE /clear` endpoint
 - **View Stats**: Check the sidebar for document counts and source breakdown

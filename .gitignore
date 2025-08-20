@@ -6,6 +6,21 @@ __pycache__/
 # C extensions
 *.so
 
+# Environment variables (keep .env local)
+.env
+.env.local
+.env.production
+
+# Configuration files with API keys
+config.local.toml
+config.*.toml
+!config.toml
+
+# Streamlit secrets (use Streamlit Cloud secrets instead)
+.streamlit/secrets.toml
+.streamlit/secrets.local.toml
+.streamlit/secrets.*.toml
+
 # Distribution / packaging
 .Python
 build/
