@@ -1,0 +1,21 @@
+# Minimal Requirements for Streamlit Cloud
+# Only essential packages to avoid dependency conflicts
+
+# Core
+streamlit
+requests
+python-dotenv
+
+# APIs
+PyGithub
+slack-sdk
+google-generativeai
+
+# Text processing
+tiktoken
+
+# Vector database alternative (if chromadb fails)
+# We'll implement a simple in-memory vector store as fallback
+
+# Utilities  
+pydantic

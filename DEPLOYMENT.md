@@ -97,21 +97,58 @@ streamlit run streamlit_app.py
 
 ### Common Issues:
 
-1. **Import Errors**
-   - Check all dependencies are in requirements.txt
-   - Verify Python version compatibility
+1. **Dependency Conflicts (Python 3.13)**
+   - Streamlit Cloud uses Python 3.13 which has stricter compatibility
+   - Solution: Use `requirements-cloud.txt` instead of `requirements.txt`
+   - Alternative: Use `requirements-minimal.txt` for bare minimum setup
 
-2. **API Key Issues**
+2. **Import Errors**
+   - Check all dependencies are in requirements.txt
+   - Verify Python version compatibility (3.13)
+   - Try using version ranges (>=) instead of pinned versions (==)
+
+3. **ChromaDB Installation Issues**
+   - ChromaDB may have compilation issues on some cloud platforms
+   - Fallback: The app will work without ChromaDB but with limited functionality
+   - Alternative: Use requirements-minimal.txt to skip ChromaDB
+
+4. **API Key Issues**
    - Double-check secrets configuration
    - Ensure keys have proper permissions
 
-3. **Memory Issues**
+5. **Memory Issues**
    - Reduce batch sizes in data processing
    - Limit concurrent operations
 
-4. **Vector DB Issues**
+6. **Vector DB Issues**
    - Vector database persists in Streamlit Cloud
    - Use "Clear Knowledge Base" to reset
+
+### Dependency Solutions:
+
+**Option 1: Full Features (Recommended)**
+```bash
+# Use the updated requirements.txt
+git push origin main
+```
+
+**Option 2: Cloud Optimized**
+```bash
+# Rename requirements-cloud.txt to requirements.txt in your repo
+mv requirements-cloud.txt requirements.txt
+git add requirements.txt
+git commit -m "Use cloud-optimized dependencies"
+git push origin main
+```
+
+**Option 3: Minimal Setup**
+```bash
+# Rename requirements-minimal.txt to requirements.txt in your repo  
+mv requirements-minimal.txt requirements.txt
+git add requirements.txt
+git commit -m "Use minimal dependencies for compatibility"
+git push origin main
+```
 
 ## Support
 
