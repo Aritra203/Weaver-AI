@@ -571,7 +571,7 @@ class WeaverAIInterface:
                         
                         if chunks:
                             # Generate embeddings
-                            texts = [chunk['content'] for chunk in chunks]
+                            texts = [chunk['text'] for chunk in chunks]  # Use 'text' instead of 'content'
                             embeddings = embeddings_gen.generate_embeddings_batch(texts)
                             
                             # Add to vector database

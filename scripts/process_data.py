@@ -296,9 +296,12 @@ class VectorDatabase:
         ids = []
         
         for i, chunk in enumerate(chunks):
-            # Create unique ID
+            # Create unique ID using both the item ID and the global chunk index
             source = chunk["metadata"].get("source", "unknown")
-            chunk_id = f"{source}_{chunk['metadata'].get('id', i)}_{chunk['metadata'].get('chunk_index', 0)}"
+            item_id = chunk['metadata'].get('id', 'unknown')
+            chunk_index = chunk['metadata'].get('chunk_index', 0)
+            # Use the global index 'i' to ensure uniqueness across all chunks
+            chunk_id = f"{source}_{item_id}_{chunk_index}_{i}"
             ids.append(chunk_id)
             
             # Add document text
@@ -396,16 +399,41 @@ class DataProcessor:
         """Process GitHub data into chunks"""
         chunks = []
         
-        # Handle the structure created by the backend: data["items"]
-        items = data.get("items", [])
+        # Handle both old and new data structures
+        items = []
+        
+        if "items" in data:
+            # New structure: data["items"]
+            items = data.get("items", [])
+        elif "data" in data:
+            # Old structure: data["data"]["issues"] and data["data"]["pull_requests"]
+            github_data = data.get("data", {})
+            items.extend(github_data.get("issues", []))
+            items.extend(github_data.get("pull_requests", []))
+        else:
+            # Direct items (fallback)
+            items = data if isinstance(data, list) else []
         
         for item in items:
+            # Skip if item is not a dictionary
+            if not isinstance(item, dict):
+                continue
+                
             # Determine if this is an issue or PR by checking for 'merged_at' or other PR-specific fields
             is_pr = "merged_at" in item or "base" in item or "head" in item
             item_type = "pull_request" if is_pr else "issue"
             
             # Main item content
             item_text = f"{item_type.replace('_', ' ').title()}: {item['title']}\n\n{item.get('body', '')}"
+            # Extract repository name based on data structure
+            repository_name = "unknown"
+            if isinstance(data.get("repository"), dict):
+                # Old structure: repository is an object
+                repository_name = data.get("repository", {}).get("full_name", "unknown")
+            elif isinstance(data.get("repository"), str):
+                # New structure: repository is a string
+                repository_name = data.get("repository", "unknown")
+            
             base_metadata = {
                 "source": "github",
                 "type": item_type,
@@ -417,7 +445,7 @@ class DataProcessor:
                 "created_at": item.get("created_at"),
                 "state": item.get("state", "unknown"),
                 "labels": ",".join(item.get("labels", [])),
-                "repository": data.get("repository", "unknown")
+                "repository": repository_name
             }
             
             # Add PR-specific metadata
