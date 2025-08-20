@@ -1,22 +1,64 @@
-# Weaver AI - Intelligent Project Knowledge Assistant
+# Weaver AI - Multi-User Intelligent Project Knowledge Assistant
 
-Weaver AI is a Retrieval-Augmented Generation (RAG) system that transforms your GitHub repositories and Slack channels into an intelligent, queryable knowledge base.
+Weaver AI is a Retrieval-Augmented Generation (RAG) system that transforms your GitHub repositories and Slack channels into an intelligent, queryable knowledge base. Now with **multi-user support and individual knowledge bases**.
 
-## 🚀 Features
+## 🚀 Key Features
 
-- **Automatic Data Ingestion**: Automatically pulls data from GitHub (issues, PRs, comments) and Slack channels with repository selection
-- **Intelligent Processing**: Converts text into semantic embeddings using Google Gemini for smart search
-- **RAG Pipeline**: Retrieves relevant context and generates AI-powered answers using Gemini
-- **User-Friendly Interface**: Simple web UI with integrated data source management and real-time ingestion
+### 🔐 Multi-User Authentication
+- **Secure User Registration & Login**: Create individual accounts with password protection
+- **Session Management**: Secure token-based authentication with automatic expiry
+- **Data Isolation**: Complete separation of user data and knowledge bases
+- **Personal Workspaces**: Each user gets their own data directories and vector databases
+
+### 📊 Individual Knowledge Bases
+- **User-Specific Vector Databases**: ChromaDB collections isolated per user
+- **Personal Data Storage**: Raw and processed data stored separately for each user
+- **Individual RAG Engines**: Personalized AI responses based on user's own data
+- **No Data Sharing**: Complete privacy - users can only access their own information
+
+### 🔄 Intelligent Data Processing
+- **Automatic Data Ingestion**: Pull data from GitHub (issues, PRs, comments) and Slack channels
+- **Smart Processing**: Convert text into semantic embeddings using Google Gemini
+- **RAG Pipeline**: Retrieve relevant context and generate AI-powered answers
 - **Repository Browser**: Browse and select from your available GitHub repositories
-- **Smart Chunking**: Preserves context while breaking down large documents for better search
 
-## 📋 Implementation Phases
+### 🎯 User Experience
+- **Clean Authentication UI**: Simple sign-up/sign-in interface with tabs
+- **Personalized Dashboard**: User-specific statistics and data sources
+- **Individual Controls**: Clear only your own knowledge base, view only your data
+- **Real-time Processing**: Live feedback during data ingestion and processing
 
-### Phase 1: Setup and Data Ingestion ✅
-- Project initialization with virtual environment
-- API connectors for GitHub and Slack
-- Raw data storage in JSON format
+## 🏗️ Architecture
+
+### Multi-User Structure
+```
+data/
+├── users/
+│   ├── users.db              # Central authentication database
+│   └── {username}/           # Individual user directories
+│       ├── raw/              # User's raw data files
+│       ├── processed/        # User's processed chunks
+│       ├── vector_db/        # User's ChromaDB collection
+│       └── uploads/          # User's file uploads
+```
+
+### Authentication System
+- **UserManager**: Handles registration, login, session management
+- **AuthUI**: Streamlit components for authentication forms
+- **UserDataManager**: Manages user-specific data operations
+- **UserRAGEngine**: Personalized RAG processing per user
+
+## 📋 Implementation Status
+
+### ✅ Completed Features
+- Multi-user authentication system with SQLite database
+- Individual vector databases per user (ChromaDB)
+- User-specific data ingestion and processing
+- Personalized RAG engines and responses
+- Secure session management with token expiry
+- Complete data isolation between users
+- User-specific GitHub repository ingestion
+- Personal knowledge base management
 
 ### Phase 2: Data Processing & Vectorization
 - Text chunking and cleaning
