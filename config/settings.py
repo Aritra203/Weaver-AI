@@ -16,7 +16,7 @@ class Settings:
     # API Keys
     GITHUB_TOKEN: str = os.getenv("GITHUB_TOKEN", "")
     SLACK_BOT_TOKEN: str = os.getenv("SLACK_BOT_TOKEN", "")
-    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+    GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
     
     # GitHub Settings
     GITHUB_REPO: Optional[str] = os.getenv("GITHUB_REPO")
@@ -40,9 +40,9 @@ class Settings:
     RAW_DATA_PATH: str = "./data/raw"
     PROCESSED_DATA_PATH: str = "./data/processed"
     
-    # OpenAI Settings
-    EMBEDDING_MODEL: str = "text-embedding-3-small"
-    CHAT_MODEL: str = "gpt-4"
+    # Gemini Settings
+    EMBEDDING_MODEL: str = "models/embedding-001"
+    CHAT_MODEL: str = "gemini-1.5-flash"
     MAX_TOKENS: int = 1000
     TEMPERATURE: float = 0.1
     
@@ -54,8 +54,8 @@ class Settings:
             missing_keys.append("GITHUB_TOKEN")
         if not self.SLACK_BOT_TOKEN:
             missing_keys.append("SLACK_BOT_TOKEN") 
-        if not self.OPENAI_API_KEY:
-            missing_keys.append("OPENAI_API_KEY")
+        if not self.GOOGLE_API_KEY:
+            missing_keys.append("GOOGLE_API_KEY")
             
         return missing_keys
     

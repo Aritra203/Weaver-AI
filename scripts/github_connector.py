@@ -61,18 +61,24 @@ class GitHubConnector:
             }
         return self.rate_limit_info
     
-    def fetch_issues(self, repo: Repository.Repository, state: str = "all") -> List[Dict[str, Any]]:
-        """Fetch all issues from repository"""
-        print(f"📥 Fetching issues (state: {state})...")
+    def fetch_issues(self, repo: Repository.Repository, state: str = "all", limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Fetch issues from repository with optional limit"""
+        limit_text = f" (limit: {limit})" if limit else ""
+        print(f"📥 Fetching issues (state: {state}){limit_text}...")
         
         issues_data = []
         issues = repo.get_issues(state=state, sort="updated", direction="desc")
         
+        count = 0
         for issue in issues:
             # Skip pull requests (they appear in issues API)
             if issue.pull_request:
                 continue
             
+            # Apply limit if specified
+            if limit and count >= limit:
+                break
+                
             issue_data = {
                 "id": issue.id,
                 "number": issue.number,
@@ -103,18 +109,25 @@ class GitHubConnector:
                     issue_data["comments"].append(comment_data)
             
             issues_data.append(issue_data)
+            count += 1
         
         print(f"✅ Fetched {len(issues_data)} issues")
         return issues_data
     
-    def fetch_pull_requests(self, repo: Repository.Repository, state: str = "all") -> List[Dict[str, Any]]:
-        """Fetch all pull requests from repository"""
-        print(f"📥 Fetching pull requests (state: {state})...")
+    def fetch_pull_requests(self, repo: Repository.Repository, state: str = "all", limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Fetch pull requests from repository with optional limit"""
+        limit_text = f" (limit: {limit})" if limit else ""
+        print(f"📥 Fetching pull requests (state: {state}){limit_text}...")
         
         prs_data = []
         pulls = repo.get_pulls(state=state, sort="updated", direction="desc")
         
+        count = 0
         for pr in pulls:
+            # Apply limit if specified
+            if limit and count >= limit:
+                break
+                
             pr_data = {
                 "id": pr.id,
                 "number": pr.number,
@@ -166,6 +179,7 @@ class GitHubConnector:
                     pr_data["comments"].append(comment_data)
             
             prs_data.append(pr_data)
+            count += 1
         
         print(f"✅ Fetched {len(prs_data)} pull requests")
         return prs_data

@@ -17,11 +17,11 @@ from config.settings import get_settings
 
 # Import dependencies with fallback for missing packages
 try:
-    import openai
-    OPENAI_AVAILABLE = True
+    import google.generativeai as genai
+    GEMINI_AVAILABLE = True
 except ImportError:
-    OPENAI_AVAILABLE = False
-    print("⚠️ OpenAI package not available. Install with: pip install openai")
+    GEMINI_AVAILABLE = False
+    print("⚠️ Google Generative AI package not available. Install with: pip install google-generativeai")
 
 try:
     import chromadb
@@ -189,52 +189,57 @@ class TextProcessor:
         return chunks
 
 class EmbeddingGenerator:
-    """Handles embedding generation using OpenAI API"""
+    """Handles embedding generation using Google Gemini API"""
     
     def __init__(self):
         """Initialize embedding generator"""
-        if not OPENAI_AVAILABLE:
-            raise Exception("OpenAI package is required for embedding generation")
+        if not GEMINI_AVAILABLE:
+            raise Exception("Google Generative AI package is required for embedding generation")
         
-        if not settings.OPENAI_API_KEY:
-            raise Exception("OPENAI_API_KEY is required")
+        if not settings.GOOGLE_API_KEY:
+            raise Exception("GOOGLE_API_KEY is required")
         
-        import openai
-        self.client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
+        import google.generativeai as genai
+        genai.configure(api_key=settings.GOOGLE_API_KEY)
+        self.client = genai
         self.model = settings.EMBEDDING_MODEL
     
     def generate_embedding(self, text: str) -> List[float]:
         """Generate embedding for a single text"""
         try:
-            import openai
-            response = self.client.embeddings.create(
-                input=text,
-                model=self.model
+            result = self.client.embed_content(
+                model=self.model,
+                content=text,
+                task_type="retrieval_document"
             )
-            return response.data[0].embedding
+            return result['embedding']
         except Exception as e:
             raise Exception(f"Failed to generate embedding: {str(e)}")
     
     def generate_embeddings_batch(self, texts: List[str]) -> List[List[float]]:
         """Generate embeddings for multiple texts"""
         embeddings = []
-        batch_size = 100  # OpenAI API limit
+        batch_size = 50  # Gemini API is more conservative
         
         for i in range(0, len(texts), batch_size):
             batch = texts[i:i + batch_size]
             print(f"  🔢 Processing embedding batch {i//batch_size + 1}/{(len(texts)-1)//batch_size + 1}")
             
             try:
-                response = self.client.embeddings.create(
-                    input=batch,
-                    model=self.model
-                )
-                batch_embeddings = [data.embedding for data in response.data]
+                # Gemini processes one at a time in a batch
+                batch_embeddings = []
+                for text in batch:
+                    result = self.client.embed_content(
+                        model=self.model,
+                        content=text,
+                        task_type="retrieval_document"
+                    )
+                    batch_embeddings.append(result['embedding'])
                 embeddings.extend(batch_embeddings)
             except Exception as e:
                 print(f"⚠️ Warning: Failed to generate embeddings for batch {i//batch_size + 1}: {str(e)}")
-                # Add placeholder embeddings
-                embeddings.extend([[0.0] * 1536] * len(batch))
+                # Add placeholder embeddings (Gemini embeddings are 768 dimensions)
+                embeddings.extend([[0.0] * 768] * len(batch))
         
         return embeddings
 
@@ -335,10 +340,10 @@ class DataProcessor:
         self.embedding_generator = None
         self.vector_db = None
         
-        if OPENAI_AVAILABLE and settings.OPENAI_API_KEY:
+        if GEMINI_AVAILABLE and settings.GOOGLE_API_KEY:
             try:
                 self.embedding_generator = EmbeddingGenerator()
-                print("✅ OpenAI embedding generator initialized")
+                print("✅ Gemini embedding generator initialized")
             except Exception as e:
                 print(f"⚠️ Failed to initialize embedding generator: {str(e)}")
         
@@ -379,92 +384,67 @@ class DataProcessor:
         """Process GitHub data into chunks"""
         chunks = []
         
-        # Process issues
-        if "issues" in data.get("data", {}):
-            for issue in data["data"]["issues"]:
-                # Main issue content
-                issue_text = f"Issue: {issue['title']}\n\n{issue['body']}"
-                base_metadata = {
-                    "source": "github",
-                    "type": "issue",
-                    "id": issue["id"],
-                    "number": issue["number"],
-                    "title": issue["title"],
-                    "author": issue["author"],
-                    "url": issue["url"],
-                    "created_at": issue["created_at"],
-                    "state": issue["state"],
-                    "labels": ",".join(issue.get("labels", []))
-                }
-                
-                issue_chunks = self.text_processor.chunk_text(issue_text, base_metadata)
-                chunks.extend(issue_chunks)
-                
-                # Process comments
-                for comment in issue.get("comments", []):
+        # Handle the structure created by the backend: data["items"]
+        items = data.get("items", [])
+        
+        for item in items:
+            # Determine if this is an issue or PR by checking for 'merged_at' or other PR-specific fields
+            is_pr = "merged_at" in item or "base" in item or "head" in item
+            item_type = "pull_request" if is_pr else "issue"
+            
+            # Main item content
+            item_text = f"{item_type.replace('_', ' ').title()}: {item['title']}\n\n{item.get('body', '')}"
+            base_metadata = {
+                "source": "github",
+                "type": item_type,
+                "id": str(item["id"]),
+                "number": item["number"],
+                "title": item["title"],
+                "author": item.get("author", "unknown"),
+                "url": item.get("url", ""),
+                "created_at": item.get("created_at"),
+                "state": item.get("state", "unknown"),
+                "labels": ",".join(item.get("labels", [])),
+                "repository": data.get("repository", "unknown")
+            }
+            
+            # Add PR-specific metadata
+            if is_pr:
+                base_metadata.update({
+                    "merged": item.get("merged", False),
+                    "merged_at": item.get("merged_at"),
+                    "base_branch": item.get("base", {}).get("ref", "unknown"),
+                    "head_branch": item.get("head", {}).get("ref", "unknown")
+                })
+            
+            item_chunks = self.text_processor.chunk_text(item_text, base_metadata)
+            chunks.extend(item_chunks)
+            
+            # Process comments
+            for comment in item.get("comments", []):
+                if comment.get("body"):  # Only process comments with content
                     comment_text = comment["body"]
                     comment_metadata = base_metadata.copy()
                     comment_metadata.update({
-                        "type": "issue_comment",
-                        "comment_id": comment["id"],
-                        "comment_author": comment["author"],
-                        "comment_url": comment["url"],
-                        "comment_created_at": comment["created_at"]
+                        "type": f"{item_type}_comment",
+                        "comment_id": str(comment["id"]),
+                        "comment_author": comment.get("author", "unknown"),
+                        "comment_url": comment.get("url", ""),
+                        "comment_created_at": comment.get("created_at")
                     })
                     
                     comment_chunks = self.text_processor.chunk_text(comment_text, comment_metadata)
                     chunks.extend(comment_chunks)
         
-        # Process pull requests
-        if "pull_requests" in data.get("data", {}):
-            for pr in data["data"]["pull_requests"]:
-                # Main PR content
-                pr_text = f"Pull Request: {pr['title']}\n\n{pr['body']}"
-                base_metadata = {
-                    "source": "github",
-                    "type": "pull_request",
-                    "id": pr["id"],
-                    "number": pr["number"],
-                    "title": pr["title"],
-                    "author": pr["author"],
-                    "url": pr["url"],
-                    "created_at": pr["created_at"],
-                    "state": pr["state"],
-                    "base_branch": pr["base_branch"],
-                    "head_branch": pr["head_branch"]
-                }
-                
-                pr_chunks = self.text_processor.chunk_text(pr_text, base_metadata)
-                chunks.extend(pr_chunks)
-                
-                # Process comments
-                for comment in pr.get("comments", []):
-                    comment_text = comment["body"]
-                    comment_metadata = base_metadata.copy()
-                    comment_metadata.update({
-                        "type": f"pr_{comment.get('type', 'comment')}",
-                        "comment_id": comment["id"],
-                        "comment_author": comment["author"],
-                        "comment_url": comment["url"],
-                        "comment_created_at": comment["created_at"]
-                    })
-                    
-                    if "path" in comment:
-                        comment_metadata["file_path"] = comment["path"]
-                    if "line" in comment:
-                        comment_metadata["line_number"] = str(comment["line"])
-                    
-                    comment_chunks = self.text_processor.chunk_text(comment_text, comment_metadata)
-                    chunks.extend(comment_chunks)
-        
+        print(f"📦 Processed {len(items)} items into {len(chunks)} chunks")
         return chunks
-    
+
     def process_slack_data(self, data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Process Slack data into chunks"""
         chunks = []
         
-        channel_info = data.get("data", {}).get("channel_info", {})
-        messages = data.get("data", {}).get("messages", [])
+        # Handle the structure created by the backend: data["messages"]
+        messages = data.get("messages", [])
         
         for message in messages:
             # Skip empty messages
@@ -475,11 +455,11 @@ class DataProcessor:
             base_metadata = {
                 "source": "slack",
                 "type": "message",
-                "channel_id": channel_info.get("id", ""),
-                "channel_name": channel_info.get("name", ""),
-                "message_ts": message["ts"],
-                "author": message["user_name"],
-                "timestamp": message["timestamp"],
+                "channel_id": message.get("channel_id", ""),
+                "channel_name": message.get("channel_name", ""),
+                "message_ts": message.get("ts", ""),
+                "author": message.get("user_name", "unknown"),
+                "timestamp": message.get("timestamp", ""),
                 "thread_ts": message.get("thread_ts", "")
             }
             
@@ -488,23 +468,20 @@ class DataProcessor:
             
             # Process thread replies
             for reply in message.get("replies", []):
-                if not reply.get("text", "").strip():
-                    continue
-                
-                reply_metadata = base_metadata.copy()
-                reply_metadata.update({
-                    "type": "thread_reply",
-                    "reply_ts": reply["ts"],
-                    "reply_author": reply["user_name"],
-                    "reply_timestamp": reply["timestamp"],
-                    "parent_ts": reply["parent_ts"]
-                })
-                
-                reply_chunks = self.text_processor.chunk_text(reply["text"], reply_metadata)
-                chunks.extend(reply_chunks)
+                if reply.get("text", "").strip():
+                    reply_metadata = base_metadata.copy()
+                    reply_metadata.update({
+                        "type": "thread_reply",
+                        "reply_ts": reply.get("ts", ""),
+                        "reply_author": reply.get("user_name", "unknown")
+                    })
+                    
+                    reply_chunks = self.text_processor.chunk_text(reply["text"], reply_metadata)
+                    chunks.extend(reply_chunks)
         
+        print(f"📦 Processed {len(messages)} messages into {len(chunks)} chunks")
         return chunks
-    
+
     def process_all_data(self) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
         """Process all raw data and generate embeddings"""
         print("🚀 Starting data processing...")

@@ -15,10 +15,10 @@ from config.settings import get_settings
 
 # Import dependencies with fallback
 try:
-    import openai
-    OPENAI_AVAILABLE = True
+    import google.generativeai as genai
+    GEMINI_AVAILABLE = True
 except ImportError:
-    OPENAI_AVAILABLE = False
+    GEMINI_AVAILABLE = False
 
 try:
     import chromadb
@@ -33,17 +33,18 @@ class RAGEngine:
     
     def __init__(self):
         """Initialize RAG engine components"""
-        self.openai_client = None
+        self.gemini_client = None
         self.vector_db = None
         self.collection = None
         
-        # Initialize OpenAI client
-        if OPENAI_AVAILABLE and settings.OPENAI_API_KEY:
-            import openai
-            self.openai_client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
-            print("✅ OpenAI client initialized")
+        # Initialize Gemini client
+        if GEMINI_AVAILABLE and settings.GOOGLE_API_KEY:
+            import google.generativeai as genai
+            genai.configure(api_key=settings.GOOGLE_API_KEY)
+            self.gemini_client = genai
+            print("✅ Gemini client initialized")
         else:
-            print("⚠️ OpenAI not available - responses will be limited")
+            print("⚠️ Gemini not available - responses will be limited")
         
         # Initialize vector database
         if CHROMADB_AVAILABLE:
@@ -59,29 +60,30 @@ class RAGEngine:
     
     def is_ready(self) -> bool:
         """Check if RAG engine is ready to process queries"""
-        return (self.openai_client is not None and 
+        return (self.gemini_client is not None and 
                 self.vector_db is not None and 
                 self.collection is not None)
     
     def get_status(self) -> Dict[str, str]:
         """Get component status"""
         return {
-            "openai": "ready" if self.openai_client else "unavailable",
+            "gemini": "ready" if self.gemini_client else "unavailable",
             "vector_db": "ready" if self.collection else "unavailable",
             "overall": "ready" if self.is_ready() else "partial"
         }
     
     def generate_query_embedding(self, query: str) -> List[float]:
         """Generate embedding for user query"""
-        if not self.openai_client:
-            raise Exception("OpenAI client not available")
+        if not self.gemini_client:
+            raise Exception("Gemini client not available")
         
         try:
-            response = self.openai_client.embeddings.create(
-                input=query,
-                model=settings.EMBEDDING_MODEL
+            result = self.gemini_client.embed_content(
+                model=settings.EMBEDDING_MODEL,
+                content=query,
+                task_type="retrieval_query"
             )
-            return response.data[0].embedding
+            return result['embedding']
         except Exception as e:
             raise Exception(f"Failed to generate query embedding: {str(e)}")
     
@@ -161,7 +163,7 @@ class RAGEngine:
     
     def generate_answer(self, query: str, context_documents: List[Dict[str, Any]]) -> str:
         """Generate answer using retrieved context"""
-        if not self.openai_client:
+        if not self.gemini_client:
             return self._generate_fallback_answer(query, context_documents)
         
         # Format context
@@ -190,17 +192,20 @@ Context from project knowledge base:
 Please provide a helpful answer based on the above context. If the context doesn't contain enough information to answer the question, please say so and suggest what kind of information would be needed."""
         
         try:
-            response = self.openai_client.chat.completions.create(
-                model=settings.CHAT_MODEL,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                max_tokens=settings.MAX_TOKENS,
-                temperature=settings.TEMPERATURE
+            model = self.gemini_client.GenerativeModel(settings.CHAT_MODEL)
+            
+            # Combine system and user prompts for Gemini
+            full_prompt = f"{system_prompt}\n\n{user_prompt}"
+            
+            response = model.generate_content(
+                full_prompt,
+                generation_config=self.gemini_client.types.GenerationConfig(
+                    max_output_tokens=settings.MAX_TOKENS,
+                    temperature=settings.TEMPERATURE,
+                )
             )
             
-            content = response.choices[0].message.content
+            content = response.text
             return content.strip() if content else "I apologize, but I couldn't generate a response."
             
         except Exception as e:
@@ -235,7 +240,7 @@ Please provide a helpful answer based on the above context. If the context doesn
             
             answer_parts.append(f"{source_info}:\n{excerpt}\n")
         
-        answer_parts.append("Note: This is a basic information retrieval. For more sophisticated analysis, please ensure OpenAI integration is configured.")
+        answer_parts.append("Note: This is a basic information retrieval. For more sophisticated analysis, please ensure Gemini integration is configured.")
         
         return "\n".join(answer_parts)
     
@@ -314,7 +319,7 @@ def main():
         if not rag.is_ready():
             print("❌ RAG engine not ready. Please ensure:")
             print("  - Vector database is created (run process_data.py)")
-            print("  - OpenAI API key is configured")
+            print("  - Google API key is configured")
             return
         
         # Get stats

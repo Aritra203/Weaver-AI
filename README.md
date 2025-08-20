@@ -4,10 +4,12 @@ Weaver AI is a Retrieval-Augmented Generation (RAG) system that transforms your 
 
 ## 🚀 Features
 
-- **Data Ingestion**: Automatically pulls data from GitHub (issues, PRs, comments) and Slack channels
-- **Intelligent Processing**: Converts text into semantic embeddings for smart search
-- **RAG Pipeline**: Retrieves relevant context and generates AI-powered answers
-- **User-Friendly Interface**: Simple web UI for asking questions about your project
+- **Automatic Data Ingestion**: Automatically pulls data from GitHub (issues, PRs, comments) and Slack channels with repository selection
+- **Intelligent Processing**: Converts text into semantic embeddings using Google Gemini for smart search
+- **RAG Pipeline**: Retrieves relevant context and generates AI-powered answers using Gemini
+- **User-Friendly Interface**: Simple web UI with integrated data source management and real-time ingestion
+- **Repository Browser**: Browse and select from your available GitHub repositories
+- **Smart Chunking**: Preserves context while breaking down large documents for better search
 
 ## 📋 Implementation Phases
 
@@ -34,7 +36,7 @@ Weaver AI is a Retrieval-Augmented Generation (RAG) system that transforms your 
 - **Language**: Python 3.8+
 - **APIs**: PyGithub, slack_sdk
 - **Vector DB**: ChromaDB
-- **AI Service**: OpenAI GPT-4 & Embeddings
+- **AI Service**: Google Gemini & Embeddings
 - **Backend**: FastAPI + Uvicorn
 - **Frontend**: Streamlit
 - **Environment**: python-venv, python-dotenv
@@ -56,10 +58,23 @@ cp .env.example .env
 
 ## 🔧 Usage
 
+### Option 1: Integrated Approach (Recommended)
+1. **Start Backend**: `python backend/main.py`
+2. **Launch UI**: `streamlit run ui/app.py`
+3. **Add Data Sources**: Use the sidebar to select GitHub repositories and Slack channels
+4. **Ask Questions**: Start querying your intelligent knowledge base!
+5. **Manage Knowledge Base**: Use the clear option in the sidebar to reset the knowledge base when needed
+
+### Option 2: Manual Data Processing
 1. **Data Ingestion**: `python scripts/ingest_data.py`
 2. **Process Data**: `python scripts/process_data.py`
 3. **Start Backend**: `uvicorn backend.main:app --reload`
 4. **Launch UI**: `streamlit run ui/app.py`
+
+### Knowledge Base Management
+- **Clear All Data**: Use the "Clear Knowledge Base" button in the UI sidebar or call `DELETE /clear` endpoint
+- **View Stats**: Check the sidebar for document counts and source breakdown
+- **Data Sources**: View detailed information about ingested repositories and channels
 
 ## 📁 Project Structure
 
@@ -90,7 +105,7 @@ Create a `.env` file with:
 ```
 GITHUB_TOKEN=your_github_token
 SLACK_BOT_TOKEN=your_slack_bot_token
-OPENAI_API_KEY=your_openai_api_key
+GOOGLE_API_KEY=your_google_gemini_api_key
 ```
 
 ## 📄 License
