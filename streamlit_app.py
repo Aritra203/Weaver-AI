@@ -6,8 +6,9 @@ Provides an intuitive chat-like interface for querying the knowledge base
 import os
 import sys
 import json
+import shutil
 from datetime import datetime
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Union
 
 # SQLite compatibility fix for ChromaDB on Streamlit Cloud
 try:
@@ -21,7 +22,9 @@ except ImportError:
     pass
 
 # Add the project root to the Python path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+project_root = os.path.dirname(os.path.abspath(__file__))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 # Import dependencies with fallback
 try:
@@ -32,13 +35,30 @@ except ImportError:
     print("❌ Streamlit not available. Install with: pip install streamlit")
     sys.exit(1)
 
-from config.settings import get_settings
+# Import settings with fallback
+SETTINGS_AVAILABLE = True
+
+# Create a compatible fallback class first
+class MockSettings:
+    def __init__(self):
+        self.api_base_url = ""
+        self.database_url = ""
+
+try:
+    from config.settings import get_settings  # type: ignore
+except ImportError as e:
+    print(f"Settings import failed: {e}")
+    SETTINGS_AVAILABLE = False
+    
+    def get_settings():  # type: ignore
+        return MockSettings()
 
 # Import RAG engine directly for cloud deployment
 try:
     from backend.rag_engine import RAGEngine
     RAG_AVAILABLE = True
 except ImportError as e:
+    print(f"RAG engine import failed: {e}")
     RAG_AVAILABLE = False
     RAGEngine = None  # Define RAGEngine as None when not available
 
@@ -47,19 +67,25 @@ try:
     from scripts.github_connector import GitHubConnector
     GITHUB_AVAILABLE = True
 except ImportError as e:
+    print(f"GitHub connector import failed: {e}")
     GITHUB_AVAILABLE = False
+    GitHubConnector = None
 
 try:
     from scripts.slack_connector import SlackConnector
     SLACK_AVAILABLE = True
 except ImportError as e:
+    print(f"Slack connector import failed: {e}")
     SLACK_AVAILABLE = False
+    SlackConnector = None
 
 try:
     from scripts.process_data import DataProcessor, VectorDatabase, EmbeddingGenerator
-    PROCESS_DATA_AVAILABLE = True
+    PROCESSING_AVAILABLE = True
 except ImportError as e:
-    PROCESS_DATA_AVAILABLE = False
+    print(f"Data processing import failed: {e}")
+    PROCESSING_AVAILABLE = False
+    DataProcessor = VectorDatabase = EmbeddingGenerator = None
 
 settings = get_settings()
 
@@ -551,7 +577,7 @@ class WeaverAIInterface:
             
             with st.spinner("🔄 Processing raw data into knowledge base..."):
                 # Initialize data processor if available
-                if not PROCESS_DATA_AVAILABLE:
+                if not PROCESSING_AVAILABLE:
                     st.error("❌ Data processing components not available")
                     return
                 
