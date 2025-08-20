@@ -13,8 +13,11 @@ from typing import Dict, List, Any, Optional
 try:
     __import__('pysqlite3')
     import sys
-    sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+    # Only replace if pysqlite3 is actually in sys.modules
+    if 'pysqlite3' in sys.modules:
+        sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 except ImportError:
+    # pysqlite3 not available, use default sqlite3
     pass
 
 # Add the project root to the Python path
@@ -98,8 +101,18 @@ class WeaverAIInterface:
                 
         except Exception as e:
             st.session_state.rag_connected = False
-            st.error(f"❌ Failed to initialize RAG engine: {e}")
-            st.info("💡 This might happen if no data has been processed yet. Try ingesting some data first.")
+            error_msg = str(e)
+            
+            # Provide specific guidance for common cloud deployment issues
+            if "sqlite3" in error_msg.lower() or "database" in error_msg.lower():
+                st.error("❌ Database initialization failed. This may be due to SQLite compatibility on cloud platforms.")
+                st.info("💡 Try processing some data first - the database will be created automatically.")
+            elif "vector" in error_msg.lower() or "chroma" in error_msg.lower():
+                st.error("❌ Vector database initialization failed.")
+                st.info("💡 The vector database will be created when you process your first data.")
+            else:
+                st.error(f"❌ Failed to initialize RAG engine: {e}")
+                st.info("💡 This might happen if no data has been processed yet. Try ingesting some data first.")
     
     def check_and_process_existing_data(self):
         """Check for existing raw data and offer to process it"""

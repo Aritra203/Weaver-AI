@@ -28,7 +28,9 @@ try:
     # Try to fix SQLite version issue first
     import sys
     __import__('pysqlite3')
-    sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+    # Only replace if pysqlite3 is actually in sys.modules
+    if 'pysqlite3' in sys.modules:
+        sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 except ImportError:
     pass
 
