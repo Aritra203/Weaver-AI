@@ -1,0 +1,27 @@
+# Streamlit Cloud Optimized Requirements
+# Minimal dependencies for cloud deployment
+
+# Core framework
+streamlit>=1.28.0
+requests>=2.31.0
+
+# GitHub and Slack APIs
+PyGithub>=1.59.0
+slack-sdk>=3.23.0
+
+# AI and embeddings
+google-generativeai>=0.3.0
+
+# Vector database (lightweight for cloud)
+chromadb>=0.4.15
+
+# Text processing
+tiktoken>=0.5.0
+
+# Utilities
+python-dotenv>=1.0.0
+pydantic>=2.0.0
+
+# Data processing (cloud compatible)
+pandas>=2.2.0
+numpy>=1.26.0

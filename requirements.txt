@@ -1,27 +1,27 @@
 # Core dependencies
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-streamlit==1.28.1
-python-dotenv==1.0.0
-requests==2.31.0
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+streamlit>=1.28.0
+python-dotenv>=1.0.0
+requests>=2.31.0
 
-# Data processing
-pandas==2.1.3
-numpy==1.24.3
+# Data processing - Compatible with Python 3.13
+pandas>=2.2.0
+numpy>=1.26.0
 
 # GitHub and Slack APIs
-PyGithub==2.1.1
-slack-sdk==3.23.0
+PyGithub>=1.59.0
+slack-sdk>=3.23.0
 
 # Vector database and embeddings
-chromadb==0.4.18
-google-generativeai==0.3.2
+chromadb>=0.4.15
+google-generativeai>=0.3.0
 
 # Text processing
-tiktoken==0.5.1
-nltk==3.8.1
+tiktoken>=0.5.0
+nltk>=3.8.0
 
 # Utilities
-pydantic==2.5.0
+pydantic>=2.5.0
 python-multipart==0.0.6
 aiofiles==23.2.0
