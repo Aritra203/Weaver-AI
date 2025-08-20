@@ -23,11 +23,23 @@ except ImportError:
     GEMINI_AVAILABLE = False
     print("⚠️ Google Generative AI package not available. Install with: pip install google-generativeai")
 
+# Handle ChromaDB and SQLite compatibility
+try:
+    # Try to fix SQLite version issue first
+    import sys
+    __import__('pysqlite3')
+    sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+except ImportError:
+    pass
+
 try:
     import chromadb
     from chromadb.config import Settings as ChromaSettings
     CHROMADB_AVAILABLE = True
-except ImportError:
+except (ImportError, RuntimeError) as e:
+    CHROMADB_AVAILABLE = False
+    print(f"⚠️ ChromaDB not available: {str(e)}")
+    print("💡 Vector database functionality will be limited")
     CHROMADB_AVAILABLE = False
     print("⚠️ ChromaDB package not available. Install with: pip install chromadb")
 

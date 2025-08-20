@@ -20,11 +20,22 @@ try:
 except ImportError:
     GEMINI_AVAILABLE = False
 
+# Handle ChromaDB and SQLite compatibility
+try:
+    # Try to fix SQLite version issue first
+    import sys
+    __import__('pysqlite3')
+    sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+except ImportError:
+    pass
+
 try:
     import chromadb
     CHROMADB_AVAILABLE = True
-except ImportError:
+except (ImportError, RuntimeError) as e:
     CHROMADB_AVAILABLE = False
+    print(f"⚠️ ChromaDB not available: {str(e)}")
+    print("💡 App will work with limited functionality (no persistent vector storage)")
 
 settings = get_settings()
 

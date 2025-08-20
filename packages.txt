@@ -1,1 +1,2 @@
 git
+libsqlite3-dev

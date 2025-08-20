@@ -17,6 +17,14 @@ from pathlib import Path
 project_root = Path(__file__).parent
 sys.path.append(str(project_root))
 
+# Handle SQLite version for ChromaDB compatibility
+try:
+    import sys
+    __import__('pysqlite3')
+    sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+except ImportError:
+    pass
+
 # Import your existing modules
 try:
     from backend.rag_engine import RAGEngine
