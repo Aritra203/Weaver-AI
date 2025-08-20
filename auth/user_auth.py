@@ -329,4 +329,8 @@ class AuthUI:
                 if "user_session" in st.session_state:
                     self.user_manager.logout_user(st.session_state.user_session["session_token"])
                     st.session_state.user_session = None
+                    # Clear the authenticated user tracking
+                    if "current_authenticated_user" in st.session_state:
+                        st.session_state.current_authenticated_user = None
+                    st.success("Signed out successfully!")
                     st.rerun()

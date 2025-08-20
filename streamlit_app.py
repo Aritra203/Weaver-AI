@@ -117,7 +117,7 @@ class WeaverAIInterface:
         self.user_data_manager = None
         
         self.session_state_keys = [
-            "messages", "rag_connected", "stats", "last_check", "user_session"
+            "messages", "rag_connected", "stats", "last_check", "user_session", "current_authenticated_user"
         ]
         self.init_session_state()
     
@@ -935,11 +935,17 @@ class WeaverAIInterface:
             # User not authenticated, auth forms are shown
             return
         
-        # User is authenticated, initialize user components
-        if not self.current_user or self.current_user != user_info["username"]:
+        # User is authenticated, initialize user components if needed
+        current_session_user = st.session_state.get("current_authenticated_user")
+        
+        if not self.current_user or self.current_user != user_info["username"] or current_session_user != user_info["username"]:
             if self.init_user_components(user_info["username"]):
+                st.session_state.current_authenticated_user = user_info["username"]
                 st.success(f"✅ Welcome back, {user_info['username']}!")
                 st.rerun()
+            else:
+                st.error("❌ Failed to initialize user components")
+                return
         
         # Load stats if connected
         if st.session_state.rag_connected and not st.session_state.stats:
