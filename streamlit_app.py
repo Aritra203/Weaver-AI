@@ -1,6 +1,6 @@
 """
 Streamlit web interface for Weaver AI
-Provides an intuitive chat-like interface for querying the knowledge base
+Multi-user application with authentication and individual knowledge bases
 """
 
 import os
@@ -53,14 +53,19 @@ except ImportError as e:
     def get_settings():  # type: ignore
         return MockSettings()
 
-# Import RAG engine directly for cloud deployment
+# Import authentication modules
 try:
-    from backend.rag_engine import RAGEngine
-    RAG_AVAILABLE = True
+    from auth.user_auth import AuthUI, UserManager
+    from auth.user_database import UserDataManager
+    from auth.user_rag import UserRAGEngine
+    AUTH_AVAILABLE = True
 except ImportError as e:
-    print(f"RAG engine import failed: {e}")
-    RAG_AVAILABLE = False
-    RAGEngine = None  # Define RAGEngine as None when not available
+    print(f"Authentication modules import failed: {e}")
+    AUTH_AVAILABLE = False
+    AuthUI = UserManager = UserDataManager = UserRAGEngine = None
+
+# Import RAG engine directly for cloud deployment
+RAG_AVAILABLE = AUTH_AVAILABLE  # RAG is available if auth is available
 
 # Import data connectors for direct integration
 try:
@@ -91,138 +96,102 @@ settings = get_settings()
 
 # Page configuration
 st.set_page_config(
-    page_title="Weaver AI",
+    page_title="Weaver AI - Multi-User",
     page_icon="🧠",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 class WeaverAIInterface:
-    """Main interface class for Weaver AI"""
+    """Multi-user interface class for Weaver AI"""
     
     def __init__(self):
         """Initialize the interface"""
-        self.rag_engine = None
+        self.auth_ui = AuthUI() if AUTH_AVAILABLE else None
+        self.current_user = None
+        self.user_rag_engine = None
+        self.user_data_manager = None
+        
         self.session_state_keys = [
-            "messages", "rag_connected", "stats", "last_check"
+            "messages", "rag_connected", "stats", "last_check", "user_session"
         ]
         self.init_session_state()
-        self.init_rag_engine()
-    
-    def init_rag_engine(self):
-        """Initialize the RAG engine"""
-        if not RAG_AVAILABLE or RAGEngine is None:
-            st.session_state.rag_connected = False
-            st.error("❌ RAG engine not available. Please check your installation.")
-            return
-            
-        try:
-            with st.spinner("🔄 Initializing knowledge base..."):
-                self.rag_engine = RAGEngine()
-                st.session_state.rag_connected = True
-                st.session_state.last_check = datetime.now()
-                
-                # Check if we have existing raw data that needs processing
-                self.check_and_process_existing_data()
-                
-        except Exception as e:
-            st.session_state.rag_connected = False
-            error_msg = str(e)
-            
-            # Provide specific guidance for common cloud deployment issues
-            if "sqlite3" in error_msg.lower() or "database" in error_msg.lower():
-                st.error("❌ Database initialization failed. This may be due to SQLite compatibility on cloud platforms.")
-                st.info("💡 Try processing some data first - the database will be created automatically.")
-            elif "vector" in error_msg.lower() or "chroma" in error_msg.lower():
-                st.error("❌ Vector database initialization failed.")
-                st.info("💡 The vector database will be created when you process your first data.")
-            else:
-                st.error(f"❌ Failed to initialize RAG engine: {e}")
-                st.info("💡 This might happen if no data has been processed yet. Try ingesting some data first.")
-    
-    def check_and_process_existing_data(self):
-        """Check for existing raw data and offer to process it"""
-        try:
-            import os
-            
-            raw_data_path = "data/raw"
-            
-            if os.path.exists(raw_data_path):
-                raw_files = [f for f in os.listdir(raw_data_path) if f.endswith('.json')]
-                if raw_files:
-                    st.info(f"Found {len(raw_files)} raw data files. You may want to process them into the knowledge base.")
-        except:
-            pass  # Ignore errors in this check
     
     def init_session_state(self):
         """Initialize Streamlit session state"""
-        if "messages" not in st.session_state:
-            st.session_state.messages = []
-        
-        if "rag_connected" not in st.session_state:
-            st.session_state.rag_connected = False
-        
-        if "stats" not in st.session_state:
-            st.session_state.stats = {}
-        
-        if "last_check" not in st.session_state:
-            st.session_state.last_check = None
+        for key in self.session_state_keys:
+            if key not in st.session_state:
+                if key == "messages":
+                    st.session_state[key] = []
+                elif key == "rag_connected":
+                    st.session_state[key] = False
+                elif key == "stats":
+                    st.session_state[key] = {}
+                else:
+                    st.session_state[key] = None
     
-    def check_api_connection(self) -> bool:
-        """Check if the RAG engine is available"""
-        if not RAG_AVAILABLE:
+    def init_user_components(self, username: str):
+        """Initialize user-specific components"""
+        if not AUTH_AVAILABLE:
             return False
             
         try:
-            if self.rag_engine is None:
-                self.init_rag_engine()
-            
-            if self.rag_engine:
-                st.session_state.rag_connected = True
-                st.session_state.last_check = datetime.now()
-                return True
-            else:
-                st.session_state.rag_connected = False
-                return False
+            self.user_rag_engine = UserRAGEngine(username)
+            self.user_data_manager = UserDataManager(username)
+            self.current_user = username
+            st.session_state.rag_connected = True
+            st.session_state.last_check = datetime.now()
+            return True
         except Exception as e:
+            st.error(f"❌ Failed to initialize user components: {e}")
             st.session_state.rag_connected = False
             return False
     
+    def check_authentication(self) -> Optional[Dict[str, Any]]:
+        """Check if user is authenticated"""
+        if not AUTH_AVAILABLE:
+            st.error("❌ Authentication system not available")
+            return None
+            
+        return self.auth_ui.render_auth_forms()
+    
     def get_stats(self) -> Optional[Dict[str, Any]]:
-        """Get knowledge base statistics"""
-        if not self.rag_engine:
+        """Get user-specific knowledge base statistics"""
+        if not self.user_rag_engine:
             return None
             
         try:
-            # Get stats from the RAG engine
-            rag_stats = self.rag_engine.get_stats()
+            rag_stats = self.user_rag_engine.get_stats()
+            user_stats = self.user_data_manager.get_user_stats()
             
             stats = {
                 "status": "Connected" if st.session_state.rag_connected else "Disconnected",
-                "engine_type": "Direct RAG Engine",
-                "vector_db": "ChromaDB",
-                "last_updated": datetime.now().isoformat()
+                "engine_type": "User-Specific RAG Engine",
+                "vector_db": "ChromaDB (User-Isolated)",
+                "last_updated": datetime.now().isoformat(),
+                "user": self.current_user
             }
             
-            # Merge with RAG engine stats
+            # Merge with RAG engine and user stats
             if rag_stats:
                 stats.update(rag_stats)
+            if user_stats:
+                stats.update(user_stats)
             
             st.session_state.stats = stats
             return stats
         except Exception as e:
-            return {"error": str(e)}
+            return {"error": str(e), "user": self.current_user}
     
     def ask_question(self, question: str, max_results: int = 5) -> Optional[Dict[str, Any]]:
-        """Ask question using the RAG engine directly"""
-        if not self.rag_engine:
-            st.error("❌ RAG engine not available")
+        """Ask question using the user's RAG engine"""
+        if not self.user_rag_engine:
+            st.error("❌ User RAG engine not available")
             return None
             
         try:
             with st.spinner("🤔 Thinking..."):
-                # Use the process_query method which returns (answer, sources, processing_time)
-                answer, sources, processing_time = self.rag_engine.process_query(
+                answer, sources, processing_time = self.user_rag_engine.process_query(
                     query=question,
                     max_results=max_results
                 )
@@ -233,7 +202,8 @@ class WeaverAIInterface:
                     "metadata": {
                         "query": question,
                         "results_count": len(sources),
-                        "processing_time": processing_time
+                        "processing_time": processing_time,
+                        "user": self.current_user
                     }
                 }
                 
@@ -242,9 +212,13 @@ class WeaverAIInterface:
             return None
     
     def ingest_github_repo(self, repo_name: str, include_issues: bool = True, include_prs: bool = True, max_items: int = 30):
-        """Ingest data from a GitHub repository directly"""
+        """Ingest data from a GitHub repository for current user"""
         if not GITHUB_AVAILABLE:
             st.error("❌ GitHub connector not available. Please install required dependencies.")
+            return
+            
+        if not self.user_data_manager:
+            st.error("❌ User not properly initialized")
             return
             
         try:
@@ -252,7 +226,7 @@ class WeaverAIInterface:
             progress_bar = st.progress(0)
             status_text = st.empty()
             
-            with st.spinner(f"🚀 Ingesting data from {repo_name}..."):
+            with st.spinner(f"🚀 Ingesting data from {repo_name} for {self.current_user}..."):
                 # Step 1: Initialize GitHub connector
                 status_text.text("🔗 Connecting to GitHub...")
                 progress_bar.progress(20)
@@ -275,13 +249,9 @@ class WeaverAIInterface:
                 if include_prs:
                     prs = github.fetch_pull_requests(repo, limit=max_items//2 if include_issues else max_items)
                 
-                # Step 3: Save raw data
+                # Step 3: Save raw data to user's directory
                 status_text.text("💾 Saving raw data...")
                 progress_bar.progress(70)
-                
-                import json
-                import os
-                from datetime import datetime
                 
                 # Create data structure
                 data = {
@@ -295,13 +265,8 @@ class WeaverAIInterface:
                     }
                 }
                 
-                # Save to data/raw directory
-                os.makedirs("data/raw", exist_ok=True)
-                filename = f"github_{repo_name.replace('/', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-                filepath = os.path.join("data/raw", filename)
-                
-                with open(filepath, 'w', encoding='utf-8') as f:
-                    json.dump(data, f, indent=2, ensure_ascii=False)
+                # Save to user's data directory
+                filepath = self.user_data_manager.save_raw_data(data, "github", repo_name)
                 
                 progress_bar.progress(100)
                 status_text.text("✅ Ingestion complete!")
@@ -317,15 +282,100 @@ class WeaverAIInterface:
                 with col3:
                     st.metric("Total Items", total_items)
                 
-                st.success(f"✅ Successfully ingested {total_items} items from {repo_name}")
+                st.success(f"✅ Successfully ingested {total_items} items from {repo_name} to {self.current_user}'s knowledge base")
                 
                 # Auto-process the data into vector database
-                st.info("🔄 Processing data into knowledge base...")
+                st.info("🔄 Processing data into your knowledge base...")
                 self.process_raw_data_to_vector_db()
                 
         except Exception as e:
             st.error(f"❌ Error ingesting GitHub repository: {str(e)}")
             st.info("💡 Make sure your GitHub token is properly configured in secrets.")
+    
+    def clear_knowledge_base(self):
+        """Clear user's knowledge base"""
+        if not self.user_data_manager or not self.user_rag_engine:
+            st.error("❌ User components not available")
+            return
+            
+        try:
+            with st.spinner("🗑️ Clearing your knowledge base..."):
+                # Clear user data
+                data_cleared = self.user_data_manager.clear_all_data()
+                kb_cleared = self.user_rag_engine.clear_knowledge_base()
+                
+                if data_cleared and kb_cleared:
+                    st.success("✅ Your knowledge base has been cleared successfully!")
+                    
+                    # Refresh stats
+                    self.get_stats()
+                    st.rerun()
+                else:
+                    st.warning("⚠️ Some data may not have been cleared completely")
+                    
+        except Exception as e:
+            st.error(f"❌ Error clearing knowledge base: {str(e)}")
+    
+    def process_raw_data_to_vector_db(self):
+        """Process user's raw data files and add them to their vector database"""
+        if not self.user_data_manager or not self.user_rag_engine:
+            st.error("❌ User components not available")
+            return
+            
+        try:
+            with st.spinner("🔄 Processing your raw data into knowledge base..."):
+                # Initialize data processor if available
+                if not PROCESSING_AVAILABLE:
+                    st.error("❌ Data processing components not available")
+                    return
+                
+                from scripts.process_data import DataProcessor, EmbeddingGenerator
+                
+                processor = DataProcessor()
+                embeddings_gen = EmbeddingGenerator()
+                
+                processed_count = 0
+                
+                # Get user's raw data files
+                raw_files = self.user_data_manager.get_raw_data_files()
+                
+                for file_info in raw_files:
+                    try:
+                        with open(file_info['filepath'], 'r', encoding='utf-8') as f:
+                            data = json.load(f)
+                        
+                        chunks = []
+                        
+                        # Process based on data type
+                        filename = file_info['filename'].lower()
+                        if 'github' in filename:
+                            chunks = processor.process_github_data(data)
+                        elif 'slack' in filename:
+                            chunks = processor.process_slack_data(data)
+                        
+                        if chunks:
+                            # Generate embeddings
+                            texts = [chunk['text'] for chunk in chunks]
+                            embeddings = embeddings_gen.generate_embeddings_batch(texts)
+                            
+                            # Add to user's vector database
+                            if self.user_rag_engine.add_documents(chunks, embeddings):
+                                processed_count += len(chunks)
+                    
+                    except Exception as e:
+                        st.warning(f"⚠️ Failed to process {file_info['filename']}: {e}")
+                        continue
+                
+                if processed_count > 0:
+                    st.success(f"✅ Processed {processed_count} chunks into your knowledge base!")
+                    
+                    # Refresh stats
+                    self.get_stats()
+                else:
+                    st.warning("No data chunks were generated from your raw files.")
+                    
+        except Exception as e:
+            st.error(f"❌ Error processing raw data: {str(e)}")
     
     def ingest_slack_channels(self, channels: List[str], days_back: int = 30, max_messages: int = 1000):
         """Ingest data from Slack channels directly"""
@@ -472,236 +522,139 @@ class WeaverAIInterface:
             st.error(f"❌ Error loading repositories: {str(e)}")
             st.info("💡 Make sure your GitHub token is properly configured.")
     
-    def clear_knowledge_base(self):
-        """Clear all documents from the knowledge base"""
-        try:
-            with st.spinner("🗑️ Clearing knowledge base..."):
-                # Clear raw data files
-                import os
-                import shutil
-                
-                raw_data_path = "data/raw"
-                processed_data_path = "data/processed"
-                vector_db_path = "data/vector_db"
-                
-                paths_to_clear = [raw_data_path, processed_data_path, vector_db_path]
-                
-                for path in paths_to_clear:
-                    if os.path.exists(path):
-                        shutil.rmtree(path)
-                        os.makedirs(path, exist_ok=True)
-                
-                # Reinitialize RAG engine if available
-                if RAG_AVAILABLE and RAGEngine:
-                    try:
-                        self.rag_engine = RAGEngine()
-                    except:
-                        pass  # Ignore errors during reinitialization
-                
-                st.success("✅ Knowledge base cleared successfully!")
-                
-                # Refresh stats
-                self.get_stats()
-                st.rerun()
-                    
-        except Exception as e:
-            st.error(f"❌ Error clearing knowledge base: {str(e)}")
-    
     def show_data_sources(self):
-        """Show detailed information about current data sources"""
+        """Show detailed information about current user's data sources"""
+        if not self.user_data_manager:
+            st.error("❌ User components not available")
+            return
+            
         try:
-            import os
-            import json
+            st.subheader(f"📋 {self.current_user}'s Data Sources")
             
-            raw_data_path = "data/raw"
-            processed_data_path = "data/processed"
+            # Get user's raw data files
+            raw_files = self.user_data_manager.get_raw_data_files()
             
-            if not os.path.exists(raw_data_path):
+            if not raw_files:
                 st.info("📭 No data sources found. Add some repositories or Slack channels!")
                 return
             
-            st.subheader("📋 Data Sources Overview")
+            # Process and display files
+            processed_files = []
+            for file_info in raw_files:
+                try:
+                    with open(file_info['filepath'], 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    
+                    filename = file_info['filename']
+                    if 'github' in filename:
+                        processed_files.append({
+                            "type": "GitHub",
+                            "name": data.get("repository", filename),
+                            "items": len(data.get("items", [])),
+                            "file": filename,
+                            "size": file_info['size']
+                        })
+                    elif 'slack' in filename:
+                        processed_files.append({
+                            "type": "Slack",
+                            "name": f"{len(data.get('channels', []))} channels",
+                            "items": len(data.get("messages", [])),
+                            "file": filename,
+                            "size": file_info['size']
+                        })
+                except:
+                    continue
             
-            # Count raw data files
-            raw_files = []
-            if os.path.exists(raw_data_path):
-                for filename in os.listdir(raw_data_path):
-                    if filename.endswith('.json'):
-                        filepath = os.path.join(raw_data_path, filename)
-                        try:
-                            with open(filepath, 'r', encoding='utf-8') as f:
-                                data = json.load(f)
-                                
-                            if 'github' in filename:
-                                raw_files.append({
-                                    "type": "GitHub",
-                                    "name": data.get("repository", filename),
-                                    "items": len(data.get("items", [])),
-                                    "file": filename
-                                })
-                            elif 'slack' in filename:
-                                raw_files.append({
-                                    "type": "Slack",
-                                    "name": f"{len(data.get('channels', []))} channels",
-                                    "items": len(data.get("messages", [])),
-                                    "file": filename
-                                })
-                        except:
-                            continue
-            
-            if raw_files:
-                for source in raw_files:
+            if processed_files:
+                for source in processed_files:
                     with st.expander(f"{source['type']}: {source['name']} ({source['items']} items)"):
                         st.write(f"**Type**: {source['type']}")
                         st.write(f"**Items**: {source['items']}")
                         st.write(f"**File**: {source['file']}")
+                        st.write(f"**Size**: {source['size']} bytes")
             else:
+                st.info("📭 No valid data sources found.")
+                
+        except Exception as e:
+            st.error(f"❌ Error loading data sources: {str(e)}")
+            return
+            
+        try:
+            st.subheader(f"📋 {self.current_user}'s Data Sources")
+            
+            # Get user's raw data files
+            raw_files = self.user_data_manager.get_raw_data_files()
+            
+            if not raw_files:
                 st.info("📭 No data sources found. Add some repositories or Slack channels!")
+                return
+            
+            # Process and display files
+            processed_files = []
+            for file_info in raw_files:
+                try:
+                    with open(file_info['filepath'], 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    
+                    filename = file_info['filename']
+                    if 'github' in filename:
+                        processed_files.append({
+                            "type": "GitHub",
+                            "name": data.get("repository", filename),
+                            "items": len(data.get("items", [])),
+                            "file": filename,
+                            "size": file_info['size']
+                        })
+                    elif 'slack' in filename:
+                        processed_files.append({
+                            "type": "Slack",
+                            "name": f"{len(data.get('channels', []))} channels",
+                            "items": len(data.get("messages", [])),
+                            "file": filename,
+                            "size": file_info['size']
+                        })
+                except:
+                    continue
+            
+            if processed_files:
+                for source in processed_files:
+                    with st.expander(f"{source['type']}: {source['name']} ({source['items']} items)"):
+                        st.write(f"**Type**: {source['type']}")
+                        st.write(f"**Items**: {source['items']}")
+                        st.write(f"**File**: {source['file']}")
+                        st.write(f"**Size**: {source['size']} bytes")
+            else:
+                st.info("📭 No valid data sources found.")
                 
         except Exception as e:
             st.error(f"❌ Error loading data sources: {str(e)}")
     
-    def process_raw_data_to_vector_db(self):
-        """Process raw data files and add them to the vector database"""
-        try:
-            import os
-            import json
-            from datetime import datetime
-            
-            raw_data_path = "data/raw"
-            processed_data_path = "data/processed"
-            
-            if not os.path.exists(raw_data_path):
-                st.warning("No raw data found to process.")
-                return
-            
-            with st.spinner("🔄 Processing raw data into knowledge base..."):
-                # Initialize data processor if available
-                if not PROCESSING_AVAILABLE:
-                    st.error("❌ Data processing components not available")
-                    return
-                
-                from scripts.process_data import DataProcessor, VectorDatabase, EmbeddingGenerator
-                
-                processor = DataProcessor()
-                vector_db = VectorDatabase()
-                embeddings_gen = EmbeddingGenerator()
-                
-                processed_count = 0
-                
-                # Process each raw data file
-                for filename in os.listdir(raw_data_path):
-                    if not filename.endswith('.json'):
-                        continue
-                    
-                    filepath = os.path.join(raw_data_path, filename)
-                    
-                    try:
-                        with open(filepath, 'r', encoding='utf-8') as f:
-                            data = json.load(f)
-                        
-                        chunks = []
-                        
-                        # Process based on data type
-                        if 'github' in filename.lower():
-                            chunks = processor.process_github_data(data)
-                        elif 'slack' in filename.lower():
-                            chunks = processor.process_slack_data(data)
-                        
-                        if chunks:
-                            # Generate embeddings
-                            texts = [chunk['text'] for chunk in chunks]  # Use 'text' instead of 'content'
-                            embeddings = embeddings_gen.generate_embeddings_batch(texts)
-                            
-                            # Add to vector database
-                            vector_db.add_documents(chunks, embeddings)
-                            processed_count += len(chunks)
-                            
-                            # Save processed chunks
-                            os.makedirs(processed_data_path, exist_ok=True)
-                            processed_filename = f"processed_{filename}"
-                            processed_filepath = os.path.join(processed_data_path, processed_filename)
-                            
-                            with open(processed_filepath, 'w', encoding='utf-8') as f:
-                                json.dump({
-                                    "chunks": chunks,
-                                    "metadata": {
-                                        "source_file": filename,
-                                        "processed_at": datetime.now().isoformat(),
-                                        "chunks_count": len(chunks)
-                                    }
-                                }, f, indent=2)
-                    
-                    except Exception as e:
-                        st.warning(f"⚠️ Failed to process {filename}: {e}")
-                        continue
-                
-                if processed_count > 0:
-                    # Reinitialize RAG engine to use new data
-                    if RAG_AVAILABLE and RAGEngine:
-                        try:
-                            self.rag_engine = RAGEngine()
-                            st.session_state.rag_connected = True
-                        except Exception as e:
-                            st.warning(f"⚠️ Failed to reinitialize RAG engine: {e}")
-                    
-                    st.success(f"✅ Processed {processed_count} chunks into knowledge base!")
-                    
-                    # Refresh stats
-                    self.get_stats()
-                else:
-                    st.warning("No data chunks were generated from the raw files.")
-                    
-        except Exception as e:
-            st.error(f"❌ Error processing raw data: {str(e)}")
-    
-    def process_existing_data(self):
-        """Process any existing raw data in the data directory"""
-        try:
-            import os
-            
-            raw_data_path = "data/raw"
-            
-            if not os.path.exists(raw_data_path):
-                st.info("No existing data found. Please ingest some GitHub repositories or Slack channels first.")
-                return
-            
-            raw_files = [f for f in os.listdir(raw_data_path) if f.endswith('.json')]
-            
-            if not raw_files:
-                st.info("No raw data files found. Please ingest some GitHub repositories or Slack channels first.")
-                return
-            
-            st.info(f"Found {len(raw_files)} raw data files. Processing them now...")
-            self.process_raw_data_to_vector_db()
-            
-        except Exception as e:
-            st.error(f"❌ Error checking existing data: {str(e)}")
-    
     def render_header(self):
         """Render the application header"""
-        st.title("🧠 Weaver AI")
-        st.markdown("*Your intelligent project knowledge assistant*")
+        st.title("🧠 Weaver AI - Multi-User")
+        if self.current_user:
+            st.markdown(f"*Welcome back, **{self.current_user}**! Your intelligent project knowledge assistant*")
+        else:
+            st.markdown("*Your intelligent project knowledge assistant*")
         
-        # Connection status
-        col1, col2, col3 = st.columns([2, 1, 1])
-        
-        with col1:
-            if st.session_state.rag_connected:
-                st.success("🟢 RAG Engine Ready")
-            else:
-                st.error("🔴 RAG Engine not available")
-                if st.button("🔄 Retry Connection"):
-                    self.check_api_connection()
-        
-        with col2:
-            if st.button("📊 Refresh Stats"):
-                self.get_stats()
-        
-        with col3:
-            if st.button("🗑️ Clear Chat"):
-                st.session_state.messages = []
-                st.rerun()
+        if self.current_user:
+            # Connection status
+            col1, col2, col3 = st.columns([2, 1, 1])
+            
+            with col1:
+                if st.session_state.rag_connected:
+                    st.success("🟢 Your Knowledge Base Ready")
+                else:
+                    st.error("🔴 Knowledge Base not available")
+            
+            with col2:
+                if st.button("📊 Refresh Stats"):
+                    self.get_stats()
+            
+            with col3:
+                if st.button("🗑️ Clear Chat"):
+                    st.session_state.messages = []
+                    st.rerun()
     
     def render_sidebar(self):
         """Render the sidebar with stats and settings"""
@@ -822,7 +775,7 @@ class WeaverAIInterface:
             
             # Process existing raw data
             if st.button("🔄 Process Raw Data"):
-                self.process_existing_data()
+                self.process_raw_data_to_vector_db()
             
             # Clear knowledge base with confirmation
             if stats and stats.get("total_documents", 0) > 0:
@@ -865,7 +818,9 @@ class WeaverAIInterface:
                     self.get_stats()
                     st.success("✅ Knowledge base refreshed!")
                 else:
-                    self.check_api_connection()
+                    # Try to reinitialize user components
+                    if self.current_user:
+                        self.init_user_components(self.current_user)
                     st.rerun()
     
     def render_welcome_message(self):
@@ -964,11 +919,23 @@ class WeaverAIInterface:
                         st.session_state.messages.append({"role": "assistant", "content": error_response})
 
     def run(self):
-        """Main application entry point"""
-        # Check RAG connection on startup
-        if not st.session_state.rag_connected:
-            with st.spinner("🔄 Connecting to RAG engine..."):
-                self.check_api_connection()
+        """Main application entry point with authentication"""
+        if not AUTH_AVAILABLE:
+            st.error("❌ Authentication system not available. Please check your installation.")
+            return
+        
+        # Check authentication first
+        user_info = self.check_authentication()
+        
+        if not user_info:
+            # User not authenticated, auth forms are shown
+            return
+        
+        # User is authenticated, initialize user components
+        if not self.current_user or self.current_user != user_info["username"]:
+            if self.init_user_components(user_info["username"]):
+                st.success(f"✅ Welcome back, {user_info['username']}!")
+                st.rerun()
         
         # Load stats if connected
         if st.session_state.rag_connected and not st.session_state.stats:
@@ -985,6 +952,9 @@ class WeaverAIInterface:
             self.render_chat_interface()
         
         with col2:
+            # Show user info and render sidebar
+            if self.auth_ui:  # type: ignore
+                self.auth_ui.render_user_info(user_info)
             self.render_sidebar()
 
 def main():
