@@ -860,7 +860,9 @@ class WeaverAIInterface:
                         with st.expander("📚 Sources", expanded=False):
                             for i, source in enumerate(message["sources"], 1):
                                 st.markdown(f"**Source {i}:**")
-                                st.markdown(f"- **Content**: {source.get('content', 'N/A')[:200]}...")
+                                # Fix: Use 'text' field instead of 'content'
+                                content = source.get('text', source.get('content', 'N/A'))
+                                st.markdown(f"- **Content**: {content[:200]}...")
                                 if source.get('metadata'):
                                     metadata = source['metadata']
                                     if metadata.get('source_type'):
@@ -900,7 +902,9 @@ class WeaverAIInterface:
                             with st.expander("📚 Sources", expanded=False):
                                 for i, source in enumerate(sources, 1):
                                     st.markdown(f"**Source {i}:**")
-                                    st.markdown(f"- **Content**: {source.get('content', 'N/A')[:200]}...")
+                                    # Fix: Use 'text' field instead of 'content'
+                                    content = source.get('text', source.get('content', 'N/A'))
+                                    st.markdown(f"- **Content**: {content[:200]}...")
                                     if source.get('metadata'):
                                         metadata = source['metadata']
                                         if metadata.get('source_type'):
