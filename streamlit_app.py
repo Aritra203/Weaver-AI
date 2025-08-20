@@ -107,7 +107,11 @@ class WeaverAIInterface:
     
     def __init__(self):
         """Initialize the interface"""
-        self.auth_ui = AuthUI() if AUTH_AVAILABLE else None
+        if AUTH_AVAILABLE and AuthUI is not None:
+            self.auth_ui = AuthUI()
+        else:
+            self.auth_ui = None
+            
         self.current_user = None
         self.user_rag_engine = None
         self.user_data_manager = None
@@ -132,7 +136,7 @@ class WeaverAIInterface:
     
     def init_user_components(self, username: str):
         """Initialize user-specific components"""
-        if not AUTH_AVAILABLE:
+        if not AUTH_AVAILABLE or UserRAGEngine is None or UserDataManager is None:
             return False
             
         try:
@@ -149,7 +153,7 @@ class WeaverAIInterface:
     
     def check_authentication(self) -> Optional[Dict[str, Any]]:
         """Check if user is authenticated"""
-        if not AUTH_AVAILABLE:
+        if not AUTH_AVAILABLE or self.auth_ui is None:
             st.error("❌ Authentication system not available")
             return None
             
@@ -157,7 +161,7 @@ class WeaverAIInterface:
     
     def get_stats(self) -> Optional[Dict[str, Any]]:
         """Get user-specific knowledge base statistics"""
-        if not self.user_rag_engine:
+        if not self.user_rag_engine or not self.user_data_manager:
             return None
             
         try:
