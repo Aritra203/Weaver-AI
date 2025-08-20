@@ -39,6 +39,25 @@ except ImportError as e:
     RAG_AVAILABLE = False
     RAGEngine = None  # Define RAGEngine as None when not available
 
+# Import data connectors for direct integration
+try:
+    from scripts.github_connector import GitHubConnector
+    GITHUB_AVAILABLE = True
+except ImportError as e:
+    GITHUB_AVAILABLE = False
+
+try:
+    from scripts.slack_connector import SlackConnector
+    SLACK_AVAILABLE = True
+except ImportError as e:
+    SLACK_AVAILABLE = False
+
+try:
+    from scripts.process_data import DataProcessor, VectorDatabase
+    PROCESS_DATA_AVAILABLE = True
+except ImportError as e:
+    PROCESS_DATA_AVAILABLE = False
+
 settings = get_settings()
 
 # Page configuration
@@ -165,6 +184,320 @@ class WeaverAIInterface:
             st.error(f"❌ Error processing question: {str(e)}")
             return None
     
+    def ingest_github_repo(self, repo_name: str, include_issues: bool = True, include_prs: bool = True, max_items: int = 30):
+        """Ingest data from a GitHub repository directly"""
+        if not GITHUB_AVAILABLE:
+            st.error("❌ GitHub connector not available. Please install required dependencies.")
+            return
+            
+        try:
+            # Initialize progress tracking
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            with st.spinner(f"🚀 Ingesting data from {repo_name}..."):
+                # Step 1: Initialize GitHub connector
+                status_text.text("🔗 Connecting to GitHub...")
+                progress_bar.progress(20)
+                
+                from scripts.github_connector import GitHubConnector
+                github = GitHubConnector()
+                repo = github.get_repository(repo_name)
+                
+                # Step 2: Fetch basic repository data
+                status_text.text("📥 Fetching repository data...")
+                progress_bar.progress(50)
+                
+                # Fetch issues and PRs separately with limits
+                issues = []
+                prs = []
+                
+                if include_issues:
+                    issues = github.fetch_issues(repo, limit=max_items//2 if include_prs else max_items)
+                
+                if include_prs:
+                    prs = github.fetch_pull_requests(repo, limit=max_items//2 if include_issues else max_items)
+                
+                # Step 3: Save raw data
+                status_text.text("💾 Saving raw data...")
+                progress_bar.progress(70)
+                
+                import json
+                import os
+                from datetime import datetime
+                
+                # Create data structure
+                data = {
+                    "repository": repo_name,
+                    "timestamp": datetime.now().isoformat(),
+                    "items": issues + prs,
+                    "metadata": {
+                        "issues_count": len(issues),
+                        "prs_count": len(prs),
+                        "total_items": len(issues) + len(prs)
+                    }
+                }
+                
+                # Save to data/raw directory
+                os.makedirs("data/raw", exist_ok=True)
+                filename = f"github_{repo_name.replace('/', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                filepath = os.path.join("data/raw", filename)
+                
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=2, ensure_ascii=False)
+                
+                progress_bar.progress(100)
+                status_text.text("✅ Ingestion complete!")
+                
+                # Show results
+                total_items = len(issues) + len(prs)
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Issues", len(issues))
+                with col2:
+                    st.metric("Pull Requests", len(prs))
+                with col3:
+                    st.metric("Total Items", total_items)
+                
+                st.success(f"✅ Successfully ingested {total_items} items from {repo_name}")
+                st.info("💡 Data saved to raw format. Process it using the data processing scripts to add to knowledge base.")
+                
+        except Exception as e:
+            st.error(f"❌ Error ingesting GitHub repository: {str(e)}")
+            st.info("💡 Make sure your GitHub token is properly configured in secrets.")
+    
+    def ingest_slack_channels(self, channels: List[str], days_back: int = 30, max_messages: int = 1000):
+        """Ingest data from Slack channels directly"""
+        if not SLACK_AVAILABLE:
+            st.error("❌ Slack connector not available. Please install required dependencies.")
+            return
+            
+        try:
+            # Initialize progress tracking
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            with st.spinner(f"💬 Ingesting data from {len(channels)} Slack channels..."):
+                # Step 1: Initialize Slack connector
+                status_text.text("🔗 Connecting to Slack...")
+                progress_bar.progress(20)
+                
+                from scripts.slack_connector import SlackConnector
+                slack = SlackConnector()
+                slack.test_connection()
+                
+                # Step 2: Get available channels and find matching ones
+                status_text.text("🔍 Finding channels...")
+                progress_bar.progress(40)
+                
+                available_channels = slack.get_channels()
+                channel_map = {ch['name']: ch['id'] for ch in available_channels}
+                
+                # Step 3: Fetch channel messages
+                status_text.text("📥 Fetching channel messages...")
+                progress_bar.progress(50)
+                
+                all_messages = []
+                channel_info = []
+                
+                for channel_name in channels:
+                    try:
+                        if channel_name not in channel_map:
+                            st.warning(f"⚠️ Channel '{channel_name}' not found or not accessible")
+                            continue
+                            
+                        channel_id = channel_map[channel_name]
+                        messages = slack.fetch_channel_messages(
+                            channel_id=channel_id,
+                            limit=max_messages // len(channels)
+                        )
+                        
+                        # Add channel name to each message for context
+                        for msg in messages:
+                            msg['channel_name'] = channel_name
+                            
+                        all_messages.extend(messages)
+                        channel_info.append({
+                            "channel": channel_name,
+                            "channel_id": channel_id,
+                            "message_count": len(messages)
+                        })
+                    except Exception as e:
+                        st.warning(f"⚠️ Failed to fetch from channel '{channel_name}': {e}")
+                
+                # Step 3: Save raw data
+                status_text.text("� Saving raw data...")
+                progress_bar.progress(80)
+                
+                import json
+                import os
+                from datetime import datetime
+                
+                # Create data structure
+                data = {
+                    "channels": channel_info,
+                    "messages": all_messages,
+                    "timestamp": datetime.now().isoformat(),
+                    "metadata": {
+                        "total_messages": len(all_messages),
+                        "channels_processed": len([c for c in channel_info if c["message_count"] > 0]),
+                        "days_back": days_back
+                    }
+                }
+                
+                # Save to data/raw directory
+                os.makedirs("data/raw", exist_ok=True)
+                filename = f"slack_{'_'.join(channels)}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                filepath = os.path.join("data/raw", filename)
+                
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=2, ensure_ascii=False)
+                
+                progress_bar.progress(100)
+                status_text.text("✅ Ingestion complete!")
+                
+                # Show results
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Messages", len(all_messages))
+                with col2:
+                    st.metric("Channels", len([c for c in channel_info if c["message_count"] > 0]))
+                with col3:
+                    st.metric("Days Back", days_back)
+                
+                st.success(f"✅ Successfully ingested {len(all_messages)} messages from {len(channels)} channels")
+                st.info("💡 Data saved to raw format. Process it using the data processing scripts to add to knowledge base.")
+                
+        except Exception as e:
+            st.error(f"❌ Error ingesting Slack channels: {str(e)}")
+            st.info("💡 Make sure your Slack bot token is properly configured in secrets.")
+    
+    def load_available_repositories(self):
+        """Load available repositories from GitHub"""
+        if not GITHUB_AVAILABLE:
+            st.error("❌ GitHub connector not available. Please install required dependencies.")
+            return
+            
+        try:
+            with st.spinner("🔍 Loading your repositories..."):
+                from scripts.github_connector import GitHubConnector
+                github = GitHubConnector()
+                
+                # Get user's repositories
+                user = github.client.get_user()
+                repos = []
+                
+                # Limit to first 50 repos to avoid rate limits
+                for repo in list(user.get_repos())[:50]:
+                    repos.append({
+                        "full_name": repo.full_name,
+                        "name": repo.name,
+                        "stars": repo.stargazers_count,
+                        "description": repo.description or "No description",
+                        "language": repo.language or "Unknown",
+                        "private": repo.private
+                    })
+                
+                # Sort by stars descending
+                repos.sort(key=lambda x: x.get("stars", 0), reverse=True)
+                
+                st.session_state.available_repos = repos
+                st.success(f"✅ Found {len(repos)} repositories")
+                
+        except Exception as e:
+            st.error(f"❌ Error loading repositories: {str(e)}")
+            st.info("💡 Make sure your GitHub token is properly configured.")
+    
+    def clear_knowledge_base(self):
+        """Clear all documents from the knowledge base"""
+        try:
+            with st.spinner("🗑️ Clearing knowledge base..."):
+                # Clear raw data files
+                import os
+                import shutil
+                
+                raw_data_path = "data/raw"
+                processed_data_path = "data/processed"
+                vector_db_path = "data/vector_db"
+                
+                paths_to_clear = [raw_data_path, processed_data_path, vector_db_path]
+                
+                for path in paths_to_clear:
+                    if os.path.exists(path):
+                        shutil.rmtree(path)
+                        os.makedirs(path, exist_ok=True)
+                
+                # Reinitialize RAG engine if available
+                if RAG_AVAILABLE and RAGEngine:
+                    try:
+                        self.rag_engine = RAGEngine()
+                    except:
+                        pass  # Ignore errors during reinitialization
+                
+                st.success("✅ Knowledge base cleared successfully!")
+                
+                # Refresh stats
+                self.get_stats()
+                st.rerun()
+                    
+        except Exception as e:
+            st.error(f"❌ Error clearing knowledge base: {str(e)}")
+    
+    def show_data_sources(self):
+        """Show detailed information about current data sources"""
+        try:
+            import os
+            import json
+            
+            raw_data_path = "data/raw"
+            processed_data_path = "data/processed"
+            
+            if not os.path.exists(raw_data_path):
+                st.info("📭 No data sources found. Add some repositories or Slack channels!")
+                return
+            
+            st.subheader("📋 Data Sources Overview")
+            
+            # Count raw data files
+            raw_files = []
+            if os.path.exists(raw_data_path):
+                for filename in os.listdir(raw_data_path):
+                    if filename.endswith('.json'):
+                        filepath = os.path.join(raw_data_path, filename)
+                        try:
+                            with open(filepath, 'r', encoding='utf-8') as f:
+                                data = json.load(f)
+                                
+                            if 'github' in filename:
+                                raw_files.append({
+                                    "type": "GitHub",
+                                    "name": data.get("repository", filename),
+                                    "items": len(data.get("items", [])),
+                                    "file": filename
+                                })
+                            elif 'slack' in filename:
+                                raw_files.append({
+                                    "type": "Slack",
+                                    "name": f"{len(data.get('channels', []))} channels",
+                                    "items": len(data.get("messages", [])),
+                                    "file": filename
+                                })
+                        except:
+                            continue
+            
+            if raw_files:
+                for source in raw_files:
+                    with st.expander(f"{source['type']}: {source['name']} ({source['items']} items)"):
+                        st.write(f"**Type**: {source['type']}")
+                        st.write(f"**Items**: {source['items']}")
+                        st.write(f"**File**: {source['file']}")
+            else:
+                st.info("📭 No data sources found. Add some repositories or Slack channels!")
+                
+        except Exception as e:
+            st.error(f"❌ Error loading data sources: {str(e)}")
+    
     def render_header(self):
         """Render the application header"""
         st.title("🧠 Weaver AI")
@@ -220,19 +553,117 @@ class WeaverAIInterface:
             
             st.divider()
             
-            # Info Section
-            st.header("📖 About Weaver AI")
-            st.markdown("""
-            **Weaver AI** is your intelligent project knowledge assistant.
+            # Data Ingestion Section
+            st.header("� Data Ingestion")
             
-            Ask questions about:
-            - 📁 Project documentation
-            - 🔧 Code implementation
-            - 🐛 Issues and solutions
-            - 📊 Project insights
+            # GitHub Repository Section
+            with st.expander("🔗 Add GitHub Repository", expanded=False):
+                repo_name = st.text_input(
+                    "Repository (owner/repo)",
+                    placeholder="e.g., microsoft/vscode",
+                    help="Enter the GitHub repository in format: owner/repository"
+                )
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    include_issues = st.checkbox("Include Issues", value=True)
+                    max_items = st.number_input("Max Items", min_value=10, max_value=100, value=30, 
+                                              help="Recommended: 20-30 for quick processing. Higher values may timeout.")
+                with col2:
+                    include_prs = st.checkbox("Include PRs", value=True)
+                
+                # Warning for large repositories
+                if max_items > 50:
+                    st.warning("⚠️ Values > 50 may cause timeouts for large repositories")
+                
+                if st.button("🚀 Ingest Repository", disabled=not repo_name):
+                    if GITHUB_AVAILABLE:
+                        self.ingest_github_repo(repo_name, include_issues, include_prs, max_items)
+                    else:
+                        st.error("❌ GitHub connector not available. Check your installation.")
+                
+                # Quick test button
+                if repo_name and st.button("⚡ Quick Test (10 items)", disabled=not repo_name):
+                    if GITHUB_AVAILABLE:
+                        self.ingest_github_repo(repo_name, include_issues, include_prs, 10)
+                    else:
+                        st.error("❌ GitHub connector not available. Check your installation.")
             
-            Simply type your question below and get instant answers!
-            """)
+            # Slack Channels Section
+            with st.expander("💬 Add Slack Channels", expanded=False):
+                channels_input = st.text_area(
+                    "Channel Names",
+                    placeholder="general\nrandom\ndev-team",
+                    help="Enter channel names, one per line"
+                )
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    days_back = st.number_input("Days Back", min_value=1, max_value=90, value=30)
+                with col2:
+                    max_messages = st.number_input("Max Messages", min_value=50, max_value=2000, value=1000)
+                
+                if st.button("💬 Ingest Channels", disabled=not channels_input.strip()):
+                    if SLACK_AVAILABLE:
+                        channels = [ch.strip() for ch in channels_input.split('\n') if ch.strip()]
+                        self.ingest_slack_channels(channels, days_back, max_messages)
+                    else:
+                        st.error("❌ Slack connector not available. Check your installation.")
+            
+            # Repository Browser
+            with st.expander("📚 Browse Available Repos", expanded=False):
+                if st.button("🔍 Load My Repositories"):
+                    if GITHUB_AVAILABLE:
+                        self.load_available_repositories()
+                    else:
+                        st.error("❌ GitHub connector not available. Check your installation.")
+                
+                if "available_repos" in st.session_state:
+                    repos = st.session_state.available_repos
+                    if repos:
+                        selected_repo = st.selectbox(
+                            "Select Repository",
+                            options=[repo["full_name"] for repo in repos],
+                            format_func=lambda x: f"{x} ⭐{next(r['stars'] for r in repos if r['full_name'] == x)}"
+                        )
+                        
+                        if selected_repo and st.button(f"� Ingest {selected_repo}"):
+                            if GITHUB_AVAILABLE:
+                                self.ingest_github_repo(selected_repo, True, True, 30)
+                            else:
+                                st.error("❌ GitHub connector not available. Check your installation.")
+            
+            st.divider()
+            
+            # Knowledge Base Management
+            st.header("🗑️ Knowledge Base")
+            if st.button("�️ View Data Sources"):
+                self.show_data_sources()
+            
+            # Clear knowledge base with confirmation
+            if stats and stats.get("total_documents", 0) > 0:
+                st.warning(f"⚠️ Current KB contains {stats.get('total_documents', 0)} documents")
+                if st.button("�️ Clear Knowledge Base", type="secondary"):
+                    if st.session_state.get("confirm_clear", False):
+                        self.clear_knowledge_base()
+                        st.session_state.confirm_clear = False
+                    else:
+                        st.session_state.confirm_clear = True
+                        st.rerun()
+                
+                if st.session_state.get("confirm_clear", False):
+                    st.error("⚠️ Are you sure? This will delete ALL data!")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("✅ Yes, Clear All"):
+                            self.clear_knowledge_base()
+                            st.session_state.confirm_clear = False
+                    with col2:
+                        if st.button("❌ Cancel"):
+                            st.session_state.confirm_clear = False
+                            st.rerun()
+            else:
+                st.info("Knowledge base is empty")
             
             st.divider()
             
